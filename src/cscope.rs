@@ -93,7 +93,6 @@ fn parse_header(fp: &mut BufReader<File>) -> Result<Cscope, Error> {
     }
 
     let path: PathBuf = PathBuf::from(words[2]);
-
     let trailer: u32;
     let offset = words.last().unwrap().trim_start_matches("0").trim_end();
     match offset.parse() {
@@ -111,9 +110,7 @@ fn parse_header(fp: &mut BufReader<File>) -> Result<Cscope, Error> {
 fn parse_file_mark(fp: &mut BufReader<File>) -> Result<FileMark, Error> {
     // Read in the tab character
     let mut ch: [u8; 1] = [0];
-    if let Err(e) = fp.read(&mut ch) {
-        return Err(e);
-    }
+    fp.read(&mut ch)?;
     if ch[0] != '\t' as u8 {
         return Err(Error::new(
             ErrorKind::InvalidData,
@@ -122,26 +119,19 @@ fn parse_file_mark(fp: &mut BufReader<File>) -> Result<FileMark, Error> {
     }
 
     // Read the mark character.
-    if let Err(e) = fp.read(&mut ch) {
-        return Err(e);
-    }
+    fp.read(&mut ch)?;
     Ok(ch[0].into())
 }
 
 fn parse_file_path(fp: &mut BufReader<File>) -> Result<String, Error> {
     let mut buf: Vec<u8> = vec![];
-    match fp.read_until('\n' as u8, &mut buf) {
-        Ok(_) => Ok(std::str::from_utf8(&buf).unwrap().to_string()),
-        Err(e) => Err(e),
-    }
+    fp.read_until('\n' as u8, &mut buf)?;
+    Ok(std::str::from_utf8(&buf).unwrap().to_string())
 }
 
 fn parse_empty_line(fp: &mut BufReader<File>) -> Result<(), Error> {
     let mut ch: [u8; 1] = [0];
-    if let Err(e) = fp.read(&mut ch) {
-        return Err(e);
-    }
-
+    fp.read(&mut ch)?;
     if ch[0] as char != '\n' {
         return Err(Error::new(
             ErrorKind::InvalidData,
@@ -152,13 +142,10 @@ fn parse_empty_line(fp: &mut BufReader<File>) -> Result<(), Error> {
 }
 
 fn parse_line_number_and_blank(fp: &mut BufReader<File>) -> Result<u32, Error> {
-    let mut buf: Vec<u8> = vec![];
-    let line: String;
     // Read up to the blank, thus consuming the blank character (space).
-    match fp.read_until(' ' as u8, &mut buf) {
-        Ok(_) => line = std::str::from_utf8(&buf).unwrap().to_string(),
-        Err(e) => return Err(e),
-    }
+    let mut buf: Vec<u8> = vec![];
+    fp.read_until(' ' as u8, &mut buf)?;
+    let line = std::str::from_utf8(&buf).unwrap().to_string();
 
     match line.parse() {
         Ok(n) => Ok(n),
@@ -192,52 +179,25 @@ fn parse_until_empty_line(fp: &mut BufReader<File>) -> Result<String, Error> {
 // Parse the symbols for a file.
 fn parse_symbol_data(fp: &mut BufReader<File>, _cscope: &mut Cscope) -> Result<(), Error> {
     // <file mark> <file path>
-    let _mark: FileMark;
-    match parse_file_mark(fp) {
-        Ok(m) => _mark = m,
-        Err(e) => return Err(e),
-    }
-    let _fname: String;
-    match parse_file_path(fp) {
-        Ok(f) => _fname = f,
-        Err(e) => return Err(e),
-    }
+    let _mark = parse_file_mark(fp)?;
+    let _fname = parse_file_path(fp)?;
 
     // <empty line>
-    if let Err(e) = parse_empty_line(fp) {
-        return Err(e);
-    }
+    parse_empty_line(fp)?;
 
     // For each source line. (Should have used a parser combinator for this...)
     loop {
         // <line number> <blank> <non-symbol text>
-        let line: u32;
-        match parse_line_number_and_blank(fp) {
-            Ok(number) => line = number,
-            Err(e) => return Err(e),
-        }
-        let non_sym_text1: String;
-        match parse_to_end(fp) {
-            Ok(t) => non_sym_text1 = t,
-            Err(e) => return Err(e),
-        }
+        let _line_number = parse_line_number_and_blank(fp)?;
+        let non_sym_text1 = parse_to_end(fp)?;
 
         // <optional mark> <symbol>
-        let symbol: String;
-        if let Err(e) = parse_optional_mark(fp) {
-            return Err(e);
-        }
-        match parse_symbol(fp) {
-            Ok(s) => symbol = s,
-            Err(e) => return Err(e),
-        }
+        parse_optional_mark(fp)?;
+        let _symbol = parse_symbol(fp)?;
 
         // <non-symbol text>
-        let non_sym_text2: String;
-        match parse_until_empty_line(fp) {
-            Ok(t) => non_sym_text2 = t,
-            Err(e) => return Err(e),
-        }
+        let non_sym_text2 = parse_until_empty_line(fp)?;
+
         break;
     }
 
@@ -247,36 +207,16 @@ fn parse_symbol_data(fp: &mut BufReader<File>, _cscope: &mut Cscope) -> Result<(
 fn parse_body(fp: &mut BufReader<File>, cscope: &mut Cscope) -> Result<(), Error> {
     // Parse the symbol data until we reach the trailer.
     loop {
-        if let Err(e) = parse_symbol_data(fp, cscope) {
-            return Err(e);
-        }
+        parse_symbol_data(fp, cscope)?;
         break;
     }
     Ok(())
 }
 
-fn test_foo() -> Result<(), Error>
-{
-    Err(Error::new(ErrorKind::NotFound, "Foo"))
-}
-
 pub fn parse_database(filename: &Path) -> Result<(), Error> {
-    let mut fp: BufReader<File>;
-    match File::open(filename) {
-        Ok(f) => fp = BufReader::new(f),
-        Err(err) => return Err(err),
-    }
-
-    let mut cscope: Cscope;
-    match parse_header(&mut fp) {
-        Ok(cs) => cscope = cs,
-        Err(err) => return Err(err),
-    }
-
-    if let Err(err) = parse_body(&mut fp, &mut cscope) {
-        return Err(err);
-    }
-
+    let mut fp = BufReader::new(File::open(filename)?);
+    let mut cscope = parse_header(&mut fp)?;
+    parse_body(&mut fp, &mut cscope)?;
     println!("{:?}", cscope);
     Ok(())
 }
