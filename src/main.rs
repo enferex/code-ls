@@ -15,5 +15,9 @@ fn main() -> Result<(), std::io::Error> {
         .get_matches();
 
     let fname = args.value_of("file").unwrap();
-    cscope::parse_database(&Path::new(fname))
+    if let Err(e) = cscope::parse_database(&Path::new(fname)) {
+        println!("Error detected.");
+        return Err(e);
+    }
+    Ok(())
 }

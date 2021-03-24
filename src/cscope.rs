@@ -2,6 +2,13 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Error, ErrorKind, Read};
 use std::path::{Path, PathBuf};
 
+// Resources:
+// The cscope database format is internal to cscope and is not published.
+// I did find an older man page published with the format data, so that is
+// what we are going on in the parse below.  The comments in angle brackets are
+// from the aforementioned older man page:
+// https://codecat.tistory.com/entry/cscope-manpage
+
 #[derive(Debug)]
 struct Cscope {
     version: u32,
@@ -123,7 +130,6 @@ fn parse_file_mark(fp: &mut BufReader<File>) -> Result<FileMark, Error> {
 
 fn parse_file_path(fp: &mut BufReader<File>) -> Result<String, Error> {
     let mut buf: Vec<u8> = vec![];
-    let mut _line: String;
     match fp.read_until('\n' as u8, &mut buf) {
         Ok(_) => Ok(std::str::from_utf8(&buf).unwrap().to_string()),
         Err(e) => Err(e),
@@ -145,22 +151,94 @@ fn parse_empty_line(fp: &mut BufReader<File>) -> Result<(), Error> {
     Ok(())
 }
 
+fn parse_line_number_and_blank(fp: &mut BufReader<File>) -> Result<u32, Error> {
+    let mut buf: Vec<u8> = vec![];
+    let line: String;
+    // Read up to the blank, thus consuming the blank character (space).
+    match fp.read_until(' ' as u8, &mut buf) {
+        Ok(_) => line = std::str::from_utf8(&buf).unwrap().to_string(),
+        Err(e) => return Err(e),
+    }
+
+    match line.parse() {
+        Ok(n) => Ok(n),
+        Err(_) => Err(Error::new(
+            ErrorKind::InvalidData,
+            "Failed to parse line number.",
+        )),
+    }
+}
+
+fn parse_to_end(fp: &mut BufReader<File>) -> Result<String, Error> {
+    // TODO
+    Ok("todo".to_string())
+}
+
+fn parse_optional_mark(fp: &mut BufReader<File>) -> Result<(), Error> {
+    // TODO
+    Ok(())
+}
+
+fn parse_symbol(fp: &mut BufReader<File>) -> Result<String, Error> {
+    // TODO
+    Ok("todo".to_string())
+}
+
+fn parse_until_empty_line(fp: &mut BufReader<File>) -> Result<String, Error> {
+    // TODO
+    Ok("todo".to_string())
+}
+
 // Parse the symbols for a file.
 fn parse_symbol_data(fp: &mut BufReader<File>, _cscope: &mut Cscope) -> Result<(), Error> {
+    // <file mark> <file path>
     let _mark: FileMark;
     match parse_file_mark(fp) {
         Ok(m) => _mark = m,
         Err(e) => return Err(e),
     }
-
     let _fname: String;
     match parse_file_path(fp) {
         Ok(f) => _fname = f,
         Err(e) => return Err(e),
     }
 
+    // <empty line>
     if let Err(e) = parse_empty_line(fp) {
         return Err(e);
+    }
+
+    // For each source line. (Should have used a parser combinator for this...)
+    loop {
+        // <line number> <blank> <non-symbol text>
+        let line: u32;
+        match parse_line_number_and_blank(fp) {
+            Ok(number) => line = number,
+            Err(e) => return Err(e),
+        }
+        let non_sym_text1: String;
+        match parse_to_end(fp) {
+            Ok(t) => non_sym_text1 = t,
+            Err(e) => return Err(e),
+        }
+
+        // <optional mark> <symbol>
+        let symbol: String;
+        if let Err(e) = parse_optional_mark(fp) {
+            return Err(e);
+        }
+        match parse_symbol(fp) {
+            Ok(s) => symbol = s,
+            Err(e) => return Err(e),
+        }
+
+        // <non-symbol text>
+        let non_sym_text2: String;
+        match parse_until_empty_line(fp) {
+            Ok(t) => non_sym_text2 = t,
+            Err(e) => return Err(e),
+        }
+        break;
     }
 
     Ok(())
@@ -175,6 +253,11 @@ fn parse_body(fp: &mut BufReader<File>, cscope: &mut Cscope) -> Result<(), Error
         break;
     }
     Ok(())
+}
+
+fn test_foo() -> Result<(), Error>
+{
+    Err(Error::new(ErrorKind::NotFound, "Foo"))
 }
 
 pub fn parse_database(filename: &Path) -> Result<(), Error> {
