@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{BufRead, BufReader, Error, ErrorKind, Read};
+use std::io::{BufRead, BufReader, Error, ErrorKind, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 // Resources:
@@ -157,18 +157,29 @@ fn parse_line_number_and_blank(fp: &mut BufReader<File>) -> Result<u32, Error> {
 }
 
 fn parse_to_end(fp: &mut BufReader<File>) -> Result<String, Error> {
-    // TODO
-    Ok("todo".to_string())
+    let mut buf: Vec<u8> = vec![];
+    fp.read_to_end(&mut buf)?;
+    Ok(std::str::from_utf8(&buf).unwrap().to_string())
+}
+
+fn peek(fp: &mut BufReader<File>) -> u8 {
+    let mut ch: [u8; 1] = [0];
+    let res = fp.read(&mut ch);
+    if let Err(_) = fp.seek(SeekFrom::Current(-1)) {
+        return 0;
+    }
+
+    match res {
+        Ok(_) => ch[0],
+        Err(_) => 0,
+    }
 }
 
 fn parse_optional_mark(fp: &mut BufReader<File>) -> Result<(), Error> {
-    // TODO
+    if peek(fp) == '\t' as u8 {
+        let _mark = parse_file_mark(fp)?;
+    }
     Ok(())
-}
-
-fn parse_symbol(fp: &mut BufReader<File>) -> Result<String, Error> {
-    // TODO
-    Ok("todo".to_string())
 }
 
 fn parse_until_empty_line(fp: &mut BufReader<File>) -> Result<String, Error> {
@@ -193,7 +204,7 @@ fn parse_symbol_data(fp: &mut BufReader<File>, _cscope: &mut Cscope) -> Result<(
 
         // <optional mark> <symbol>
         parse_optional_mark(fp)?;
-        let _symbol = parse_symbol(fp)?;
+        let _symbol = parse_to_end(fp)?.trim();
 
         // <non-symbol text>
         let non_sym_text2 = parse_until_empty_line(fp)?;
