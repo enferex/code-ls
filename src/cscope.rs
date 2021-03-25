@@ -1,3 +1,4 @@
+use std::cmp::PartialEq;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Error, ErrorKind, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -17,6 +18,7 @@ struct Cscope {
 }
 
 #[repr(u8)]
+#[derive(PartialEq)]
 enum FileMark {
     File = '@' as u8,
     FunctionDefinition = '$' as u8,
@@ -147,7 +149,7 @@ fn parse_line_number_and_blank(fp: &mut BufReader<File>) -> Result<u32, Error> {
     fp.read_until(' ' as u8, &mut buf)?;
     let line = std::str::from_utf8(&buf).unwrap().to_string();
 
-    match line.parse() {
+    match line.trim().parse() {
         Ok(n) => Ok(n),
         Err(_) => Err(Error::new(
             ErrorKind::InvalidData,
@@ -158,8 +160,8 @@ fn parse_line_number_and_blank(fp: &mut BufReader<File>) -> Result<u32, Error> {
 
 fn parse_to_end(fp: &mut BufReader<File>) -> Result<String, Error> {
     let mut buf: Vec<u8> = vec![];
-    fp.read_to_end(&mut buf)?;
-    Ok(std::str::from_utf8(&buf).unwrap().to_string())
+    fp.read_until('\n' as u8, &mut buf)?;
+    Ok(std::str::from_utf8(&buf).unwrap().trim().to_string())
 }
 
 fn peek(fp: &mut BufReader<File>) -> u8 {
@@ -177,14 +179,30 @@ fn peek(fp: &mut BufReader<File>) -> u8 {
 
 fn parse_optional_mark(fp: &mut BufReader<File>) -> Result<(), Error> {
     if peek(fp) == '\t' as u8 {
-        let _mark = parse_file_mark(fp)?;
+        let mut ch: [u8; 2] = [0, 0];
+        fp.read(&mut ch)?;
+        if FileMark::from(ch[1]) != FileMark::WTF {
+            let _mark: FileMark = ch[1].into();
+        }
+        else {
+            fp.seek(SeekFrom::Current(-2))?;
+        }
     }
     Ok(())
 }
 
 fn parse_until_empty_line(fp: &mut BufReader<File>) -> Result<String, Error> {
-    // TODO
-    Ok("todo".to_string())
+    let mut buf: Vec<u8> = vec![];
+    while let Ok(n) = fp.read_until('\n' as u8, &mut buf) {
+        if n == 1 {
+            return Ok(std::str::from_utf8(&buf).unwrap().trim().to_string());
+        }
+    }
+
+    Err(Error::new(
+        ErrorKind::InvalidData,
+        "Failed to locate empty line.",
+    ))
 }
 
 // Parse the symbols for a file.
@@ -200,14 +218,18 @@ fn parse_symbol_data(fp: &mut BufReader<File>, _cscope: &mut Cscope) -> Result<(
     loop {
         // <line number> <blank> <non-symbol text>
         let _line_number = parse_line_number_and_blank(fp)?;
-        let non_sym_text1 = parse_to_end(fp)?;
+        let mut non_sym_text1 = parse_to_end(fp)?;
+        non_sym_text1.retain(|c| c != '\n');
+        println!("Non-symbol-text:1: {}", non_sym_text1);
 
         // <optional mark> <symbol>
         parse_optional_mark(fp)?;
-        let _symbol = parse_to_end(fp)?.trim();
+        let _symbol = parse_to_end(fp)?.trim().to_string();
 
         // <non-symbol text>
-        let non_sym_text2 = parse_until_empty_line(fp)?;
+        let mut non_sym_text2 = parse_until_empty_line(fp)?;
+        non_sym_text2.retain(|c| c != '\n');
+        println!("Non-symbol-text:2: {}", non_sym_text2);
 
         break;
     }
