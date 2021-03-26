@@ -1,4 +1,5 @@
 extern crate clap;
+extern crate prettytable;
 use clap::{App, Arg};
 use std::path::Path;
 mod cscope;
