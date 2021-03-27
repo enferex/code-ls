@@ -6,4 +6,3 @@ edition = "2018"
 
 [dependencies]
 clap = "2"
-prettytable-rs = "^0.8"

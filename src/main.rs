@@ -1,10 +1,9 @@
 extern crate clap;
-extern crate prettytable;
 use clap::{App, Arg};
 use std::path::Path;
 mod cscope;
 
-fn main() -> Result<(), std::io::Error> {
+fn main() {
     let args = App::new("cscopetree")
         .arg(
             Arg::with_name("file")
@@ -16,5 +15,11 @@ fn main() -> Result<(), std::io::Error> {
         .get_matches();
 
     let fname = args.value_of("file").unwrap();
-    cscope::parse_database(&Path::new(fname))
+    match cscope::parse_database(&Path::new(fname)) {
+        Ok(_) => (),
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1)
+        }
+    }
 }
