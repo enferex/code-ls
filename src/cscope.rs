@@ -355,7 +355,7 @@ fn parse_symbol_data(fp: &mut BufReader<File>, cscope: &mut Cscope) -> Result<()
 
         // Stop if we reach a file marker prefix (tab character).
         // This normally is a line number but will be a tab
-        // when we reach the trailer start.
+        // when we reach the trailer start or file mark.
         if peek(fp) == '\t' as u8 {
             break;
         }
