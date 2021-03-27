@@ -2,6 +2,7 @@ use std::cmp::PartialEq;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Error, ErrorKind, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use prettytable::{cell, row, Table};
 
 // Resources:
 // The cscope database format is internal to cscope and is not published.
@@ -38,21 +39,26 @@ impl Cscope {
 impl std::fmt::Display for Cscope {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let mut fname: &str = "";
+        let mut table =  Table::new();
         for sym in self.symbols.iter() {
             if sym.filename != fname && sym.mark == FileMark::FunctionDefinition {
                 fname = &sym.filename;
-                write!(f, "•{}:\n╰─╮\n", fname)?;
+//                write!(f, "•{}:\n╰─╮\n", fname)?;
+                  table.add_row(row!("•{}:", "", "", ""));
+                  table.add_row(row!("╰─╮", "", "", ""));
             }
             if sym.mark == FileMark::FunctionDefinition {
                 let sig = format!("{} {}", sym.non_sym_text1, sym.non_sym_text2);
-                write!(
-                    f,
-                    "  ├ {: <8}\t({: <16})\tline:{}\n",
-                    sym.name, sig, sym.line_number
-                )?;
+                //write!(
+                //    f,
+                //    "  ├ {: <8}\t({: <16})\tline:{}\n",
+                //    sym.name, sig, sym.line_number
+                //)?;
+                let name = format!("  ├ {}", sym.name);
+                table.add_row(row!(name, sig, sym.line_number));
             }
         }
-        Ok(())
+        f.write_fmt(format_args!("{}", table))
     }
 }
 
