@@ -62,7 +62,7 @@ impl std::fmt::Display for Cscope {
                 let sig = format!("{} {}", sym.non_sym_text1, sym.non_sym_text2);
                 write!(
                     f,
-                    "  ├ {name:<len$} {: <16}), line:{}\n",
+                    "  ├ {name:<len$} {: <16}, line:{}\n",
                     sig,
                     sym.line_number,
                     name = sym.name,
@@ -355,7 +355,7 @@ fn parse_symbol_data(fp: &mut BufReader<File>, cscope: &mut Cscope) -> Result<()
 
         // Stop if we reach a file marker prefix (tab character).
         // This normally is a line number but will be a tab
-        // when we reach the trailer start.
+        // when we reach the trailer start or file mark.
         if peek(fp) == '\t' as u8 {
             break;
         }
