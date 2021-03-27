@@ -4,7 +4,7 @@ use std::path::Path;
 mod cscope;
 
 fn main() {
-    let args = App::new("cscopetree")
+    let args = App::new("code-ls")
         .arg(
             Arg::with_name("file")
                 .value_name("FILE")
