@@ -9,7 +9,7 @@ fn main() {
             Arg::with_name("file")
                 .value_name("FILE")
                 .short("f")
-                .help("cscope database file.")
+                .help("cscope database file (it must be uncompressed).")
                 .required(true),
         )
         .get_matches();
