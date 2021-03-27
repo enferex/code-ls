@@ -1,4 +1,3 @@
-use prettytable::{cell, row, Cell, Row, Table};
 use std::cmp::PartialEq;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Error, ErrorKind, Read, Seek, SeekFrom};
@@ -26,34 +25,34 @@ struct Cscope {
     version: u32,
     current_dir: PathBuf,
     trailer_offset: u64,
+    header_string: String,
     symbols: Vec<Symbol>,
 }
 
 impl Cscope {
-    fn sort_by_file(&self) {}
+    pub fn is_compressed(&self) -> bool {
+        true
+    }
 }
 
 impl std::fmt::Display for Cscope {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        self.sort_by_file();
         let mut fname: &str = "";
-        let mut table = Table::new();
         for sym in self.symbols.iter() {
-            if sym.filename != fname {
+            if sym.filename != fname && sym.mark == FileMark::FunctionDefinition {
                 fname = &sym.filename;
-                //        write!(f, "{}:\n", fname)?;
-                table = prettytable::Table::new();
-                table.add_row(Row::new(vec![Cell::new(fname).with_hspan(3)]));
+                write!(f, "•{}:\n╰─╮\n", fname)?;
             }
             if sym.mark == FileMark::FunctionDefinition {
                 let sig = format!("{} {}", sym.non_sym_text1, sym.non_sym_text2);
-                let ln = format!("line: {}", sym.line_number);
-                table.add_row(row![sym.name, sig, ln]);
-                //write!(f, "  | {}\t({} {}) (line:{})\n", sym.name, sym.non_sym_text1, sym.non_sym_text2, sym.line_number);
+                write!(
+                    f,
+                    "  ├ {: <8}\t({: <16})\tline:{}\n",
+                    sym.name, sig, sym.line_number
+                )?;
             }
         }
-        table.set_format(*prettytable::format::consts::FORMAT_BOX_CHARS);
-        f.write_fmt(format_args!("{}", table))
+        Ok(())
     }
 }
 
@@ -146,10 +145,12 @@ fn parse_header(fp: &mut BufReader<File>) -> Result<Cscope, Error> {
         version: ver,
         current_dir: path,
         trailer_offset: trailer,
+        header_string: header,
         symbols: vec![],
     })
 }
 
+// This consumes 2 characters: <tab><mark>
 fn parse_file_mark(fp: &mut BufReader<File>) -> Result<FileMark, Error> {
     // Read in the tab character
     let mut ch: [u8; 1] = [0];
@@ -202,7 +203,7 @@ fn parse_line_number_and_blank(fp: &mut BufReader<File>) -> Result<u64, Error> {
 fn parse_to_end(fp: &mut BufReader<File>) -> Result<String, Error> {
     let mut buf: Vec<u8> = vec![];
     fp.read_until('\n' as u8, &mut buf)?;
-    Ok(std::str::from_utf8(&buf).unwrap().trim().to_string())
+    Ok(from_utf8(&buf))
 }
 
 fn peek(fp: &mut BufReader<File>) -> u8 {
@@ -228,11 +229,36 @@ fn parse_optional_mark(fp: &mut BufReader<File>) -> Result<Option<FileMark>, Err
     Ok(None)
 }
 
+fn from_utf8(buf: &Vec<u8>) -> String {
+    match std::str::from_utf8(buf) {
+        Ok(s) => s.trim().to_string(),
+        Err(_) => "<invalid utf8>".to_string(),
+    }
+}
+
 fn parse_until_empty_line(fp: &mut BufReader<File>) -> Result<String, Error> {
     let mut buf: Vec<u8> = vec![];
-    while let Ok(n) = fp.read_until('\n' as u8, &mut buf) {
-        if n == 1 {
-            return Ok(std::str::from_utf8(&buf).unwrap().trim().to_string());
+    loop {
+        let num_read: usize;
+        match fp.read_until('\n' as u8, &mut buf) {
+            Ok(n) => num_read = n,
+            Err(e) => return Err(e),
+        }
+        if num_read == 1 {
+            return Ok(from_utf8(&buf));
+        }
+    }
+}
+
+fn parse_until_next_source_line(fp: &mut BufReader<File>) -> Result<Vec<String>, Error> {
+    let mut lines: Vec<String> = vec![];
+    while let Ok(line) = parse_until_empty_line(fp) {
+        lines.push(line);
+        let ch = peek(fp) as char;
+        if ch.is_digit(10) {
+            return Ok(lines);
+        } else if at_filemark(fp) {
+            return Ok(lines);
         }
     }
 
@@ -240,6 +266,22 @@ fn parse_until_empty_line(fp: &mut BufReader<File>) -> Result<String, Error> {
         ErrorKind::InvalidData,
         "Failed to locate empty line.",
     ))
+}
+
+fn at_filemark(fp: &mut BufReader<File>) -> bool {
+    let found: bool;
+    let idx = fp.seek(SeekFrom::Current(0)).unwrap_or(0);
+    match parse_optional_mark(fp) {
+        Ok(opt) => match opt {
+            Some(m) => found = m == FileMark::File,
+            None => found = false,
+        },
+        Err(_) => found = false,
+    }
+    match fp.seek(SeekFrom::Start(idx)) {
+        Ok(_) => found,
+        Err(_) => false,
+    }
 }
 
 // Parse the symbols for a file.
@@ -259,6 +301,9 @@ fn parse_symbol_data(fp: &mut BufReader<File>, cscope: &mut Cscope) -> Result<()
 
     // For each source line. (Should have used a parser combinator for this...)
     while fp.seek(SeekFrom::Current(0))? < cscope.trailer_offset {
+        if at_filemark(fp) {
+            break;
+        }
         // <line number> <blank> <non-symbol text>
         let line_number = parse_line_number_and_blank(fp)?;
         let mut non_sym_text1 = parse_to_end(fp)?;
@@ -272,7 +317,12 @@ fn parse_symbol_data(fp: &mut BufReader<File>, cscope: &mut Cscope) -> Result<()
         let symbol = parse_to_end(fp)?.trim().to_string();
 
         // <non-symbol text>
-        let mut non_sym_text2 = parse_until_empty_line(fp)?;
+        let source = parse_until_next_source_line(fp)?;
+        let mut non_sym_text2: String = if source.is_empty() {
+            " ".to_string()
+        } else {
+            source[0].clone()
+        };
         non_sym_text2.retain(|c| c != '\n');
 
         let sym = Symbol {
@@ -292,21 +342,31 @@ fn parse_symbol_data(fp: &mut BufReader<File>, cscope: &mut Cscope) -> Result<()
             break;
         }
     }
-
     Ok(())
 }
 
 fn parse_body(fp: &mut BufReader<File>, cscope: &mut Cscope) -> Result<(), Error> {
     // Parse the symbol data until we reach the trailer.
-    parse_symbol_data(fp, cscope)?;
+    while fp.seek(SeekFrom::Current(0))? < cscope.trailer_offset {
+        parse_symbol_data(fp, cscope)?;
+        // Stop if we are at newline before the trailer marker (just before the trailer).
+        if fp.seek(SeekFrom::Current(0))? + 3 == cscope.trailer_offset {
+            break;
+        }
+    }
     Ok(())
 }
 
 pub fn parse_database(filename: &Path) -> Result<(), Error> {
     let mut fp = BufReader::new(File::open(filename)?);
     let mut cscope = parse_header(&mut fp)?;
+    if !cscope.is_compressed() {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "The cscope database must be compressed.  See the '-c' option in the cscope manpage.",
+        ));
+    }
     parse_body(&mut fp, &mut cscope)?;
     println!("{}", cscope);
-    //    println!("{:#?}", cscope);
     Ok(())
 }
